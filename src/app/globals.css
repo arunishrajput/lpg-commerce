@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/*
+  Design system — "Supply Line"
+  Grounded in the subject: gas-cylinder blue, regulator steel, flame amber.
+  Structural divider motif = the hose/pipeline connecting sections.
+*/
+:root {
+  --ink: #14212e;
+  --ink-soft: #47586a;
+  --paper: #f5f6f3;
+  --surface: #ffffff;
+  --line: #dde2e1;
+
+  --brand: #0b4f6c;       /* regulator blue — primary */
+  --brand-deep: #073a50;
+  --flame: #e2601f;       /* flame amber-orange — accent, used sparingly */
+  --flame-soft: #fbe6d8;
+  --safe: #2f8f4e;        /* safety green — availability, success */
+  --warn: #c8892b;        /* caution amber — low stock, pending */
+  --danger: #b5352f;      /* alert red — errors, unavailable */
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-deep: var(--brand-deep);
+  --color-flame: var(--flame);
+  --color-flame-soft: var(--flame-soft);
+  --color-safe: var(--safe);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+
+ --font-display: Arial, Helvetica, sans-serif;
+--font-sans: Arial, Helvetica, sans-serif;
+--font-mono: "Courier New", monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Supply-line divider — the recurring structural device between sections.
+   A pipeline with periodic couplings, standing in for numbered markers. */
+.supply-line {
+  position: relative;
+  height: 2px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--line) 0,
+    var(--line) 10px,
+    transparent 10px,
+    transparent 16px
+  );
+}
+.supply-line::before,
+.supply-line::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--brand);
+  transform: translateY(-50%);
+}
+.supply-line::before { left: 0; }
+.supply-line::after { right: 0; }
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

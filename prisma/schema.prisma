@@ -1,0 +1,599 @@
+// Smart LPG & Kitchen Equipment Commerce Platform — Database Schema
+// Phase 1 (foundation) + Phase 2 (auth) models are fully fleshed out.
+// Later-phase models are included now (per the modular architecture goal)
+// but will gain fields/relations as each phase is implemented.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────
+
+enum VerificationLevel {
+  BASIC
+  PHONE_VERIFIED
+  ADDRESS_VERIFIED
+  KYC_VERIFIED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum StaffRole {
+  SUPER_ADMIN
+  STORE_MANAGER
+  INVENTORY_MANAGER
+  DELIVERY_MANAGER
+  SUPPORT_AGENT
+}
+
+enum ProductEligibility {
+  STANDARD
+  REGULATED
+}
+
+enum OrderStatus {
+  PLACED
+  PAYMENT_VERIFIED
+  CONFIRMED
+  PROCESSING
+  PACKED
+  DISPATCHED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  UPI
+  CARD
+  NETBANKING
+  WALLET
+  COD
+  MOCK
+}
+
+enum RefundStatus {
+  REQUESTED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum DeliveryZoneTier {
+  ZONE_A
+  ZONE_B
+  ZONE_C
+  UNAVAILABLE
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AUTH / USERS  (Phase 2)
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  emailVerifiedAt   DateTime?
+  phone             String?   @unique
+  phoneVerifiedAt   DateTime?
+  passwordHash      String
+  fullName          String
+  verificationLevel VerificationLevel @default(BASIC)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  profile           UserProfile?
+  addresses         Address[]
+  sessions          Session[]
+  emailTokens       EmailVerificationToken[]
+  passwordResets    PasswordResetToken[]
+  kycRecord         KycVerification?
+  carts             Cart[]
+  wishlists         WishlistItem[]
+  orders            Order[]
+  notifications     Notification[]
+  supportChats      SupportConversation[]
+  reviews           Review[]
+  auditLogsCaused   AuditLog[] @relation("AuditActor")
+  productViews      ProductView[]
+
+  @@index([email])
+}
+
+model UserProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatarUrl String?
+  updatedAt DateTime @updatedAt
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  userAgent String?
+  ipHash    String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+// Generic KYC — never stores raw government ID numbers.
+model KycVerification {
+  id                 String    @id @default(cuid())
+  userId             String    @unique
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status             KycStatus @default(NOT_STARTED)
+  consentGivenAt     DateTime?
+  verifiedAt         DateTime?
+  providerName       String?   // e.g. "mock-kyc", real provider later
+  providerReferenceId String?  // opaque reference from the provider, never the raw ID
+  maskedIdentifier   String?   // e.g. "XXXX-XXXX-1234", never full number
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label      String?
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  pincode    String
+  latitude   Float?
+  longitude  Float?
+  isDefault  Boolean  @default(false)
+  verifiedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  orders     Order[]
+
+  @@index([userId])
+  @@index([pincode])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// STORES / STAFF / RBAC  (Phase 7+)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Store {
+  id        String   @id @default(cuid())
+  name      String
+  latitude  Float
+  longitude Float
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  staff          Staff[]
+  inventory      Inventory[]
+  deliveryZones  DeliveryZone[]
+  orders         Order[]
+}
+
+model Staff {
+  id        String    @id @default(cuid())
+  storeId   String
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  email     String    @unique
+  role      StaffRole
+  createdAt DateTime  @default(now())
+
+  auditLogs AuditLog[]
+
+  @@index([storeId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CATALOG  (Phase 3)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Category {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  slug     String    @unique
+  products Product[]
+}
+
+model Product {
+  id                 String             @id @default(cuid())
+  sku                String             @unique
+  name               String
+  slug               String             @unique
+  brand              String?
+  description        String
+  categoryId         String
+  category           Category           @relation(fields: [categoryId], references: [id])
+  price              Decimal            @db.Decimal(10, 2)
+  discountPercent    Int                @default(0)
+  eligibility        ProductEligibility @default(STANDARD)
+  warrantyMonths     Int                @default(0)
+  isActive           Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  images             ProductImage[]
+  specifications     ProductSpecification[]
+  documents          ProductDocument[]
+  compatibleWith     ProductCompatibility[] @relation("CompatFrom")
+  compatibleFrom     ProductCompatibility[] @relation("CompatTo")
+  inventory          Inventory[]
+  cartItems          CartItem[]
+  wishlistItems      WishlistItem[]
+  orderItems         OrderItem[]
+  reviews            Review[]
+  views              ProductView[]
+
+  @@index([categoryId])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  altText   String?
+  sortOrder Int     @default(0)
+}
+
+model ProductSpecification {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  label     String
+  value     String
+}
+
+model ProductDocument {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  title     String  // e.g. "Safety manual", "Installation guide"
+  url       String
+}
+
+// Structured, admin-maintained compatibility — never inferred by AI.
+model ProductCompatibility {
+  id             String  @id @default(cuid())
+  productId      String
+  product        Product @relation("CompatFrom", fields: [productId], references: [id], onDelete: Cascade)
+  compatibleId   String
+  compatible     Product @relation("CompatTo", fields: [compatibleId], references: [id], onDelete: Cascade)
+  isCompatible   Boolean @default(true)
+  note           String?
+
+  @@unique([productId, compatibleId])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+// Lightweight browsing-history signal for recommendations (Phase 9). Not a
+// full analytics/clickstream system — just enough to let "recently viewed"
+// feed into "recommended for you".
+model ProductView {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  viewedAt  DateTime @default(now())
+
+  @@index([userId, viewedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// INVENTORY  (Phase 7)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Inventory {
+  id              String   @id @default(cuid())
+  storeId         String
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockOnHand     Int      @default(0)
+  stockReserved   Int      @default(0)
+  lowStockAt      Int      @default(5)
+  updatedAt       DateTime @updatedAt
+
+  transactions    InventoryTransaction[]
+
+  @@unique([storeId, productId])
+}
+
+model InventoryTransaction {
+  id          String    @id @default(cuid())
+  inventoryId String
+  inventory   Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  change      Int       // positive = added, negative = removed
+  reason      String
+  createdAt   DateTime  @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CART / WISHLIST  (Phase 4)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  items     CartItem[]
+}
+
+model CartItem {
+  id        String  @id @default(cuid())
+  cartId    String
+  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int     @default(1)
+  savedForLater Boolean @default(false)
+
+  @@unique([cartId, productId])
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+model Coupon {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  discountPercent Int
+  isActive       Boolean  @default(true)
+  expiresAt      DateTime?
+
+  orders         Order[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// DELIVERY  (Phase 6)
+// ─────────────────────────────────────────────────────────────────────────
+
+model DeliveryZone {
+  id           String           @id @default(cuid())
+  storeId      String
+  store        Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name         String
+  tier         DeliveryZoneTier
+  pincodePrefix String
+  baseFee      Decimal          @db.Decimal(10, 2)
+  etaMinMinutes Int
+  etaMaxMinutes Int
+
+  @@index([storeId])
+}
+
+model Delivery {
+  id              String    @id @default(cuid())
+  orderId         String    @unique
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status          String    @default("PENDING")
+  distanceKm      Float?
+  feeCharged      Decimal   @db.Decimal(10, 2)
+  etaMinutes      Int?
+  createdAt       DateTime  @default(now())
+
+  tracking        DeliveryTracking[]
+}
+
+model DeliveryTracking {
+  id         String   @id @default(cuid())
+  deliveryId String
+  delivery   Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  status     String
+  latitude   Float?
+  longitude  Float?
+  createdAt  DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ORDERS / PAYMENTS  (Phase 5)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Order {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  storeId       String?
+  store         Store?        @relation(fields: [storeId], references: [id])
+  addressId     String
+  address       Address       @relation(fields: [addressId], references: [id])
+  status        OrderStatus   @default(PLACED)
+  subtotal      Decimal       @db.Decimal(10, 2)
+  deliveryFee   Decimal       @db.Decimal(10, 2) @default(0)
+  discount      Decimal       @db.Decimal(10, 2) @default(0)
+  tax           Decimal       @db.Decimal(10, 2) @default(0)
+  total         Decimal       @db.Decimal(10, 2)
+  couponId      String?
+  coupon        Coupon?       @relation(fields: [couponId], references: [id])
+  riskScore     String?       // "low" | "medium" | "high"
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  items         OrderItem[]
+  payment       Payment?
+  refund        Refund?
+  delivery      Delivery?
+  invoice       Invoice?
+  warranty      Warranty[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  unitPrice Decimal @db.Decimal(10, 2)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  orderId       String        @unique
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  providerRef   String?
+  amount        Decimal       @db.Decimal(10, 2)
+  verifiedAt    DateTime?
+  createdAt     DateTime      @default(now())
+}
+
+model Refund {
+  id        String       @id @default(cuid())
+  orderId   String       @unique
+  order     Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    RefundStatus @default(REQUESTED)
+  reason    String?
+  amount    Decimal      @db.Decimal(10, 2)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model Invoice {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  pdfUrl    String?
+  issuedAt  DateTime @default(now())
+}
+
+model Warranty {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productName String
+  serialNo    String?
+  startsAt    DateTime @default(now())
+  expiresAt   DateTime
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// NOTIFICATIONS / SUPPORT  (Phase 8/9)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model SupportConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String
+  createdAt DateTime @default(now())
+
+  messages  SupportMessage[]
+}
+
+model SupportMessage {
+  id             String              @id @default(cuid())
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String              // "user" | "assistant" | "agent"
+  content        String
+  createdAt      DateTime            @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AUDIT  (Phase 10)
+// ─────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actorUser   User?    @relation("AuditActor", fields: [actorUserId], references: [id])
+  staffId     String?
+  staff       Staff?   @relation(fields: [staffId], references: [id])
+  action      String
+  resource    String
+  result      String
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
